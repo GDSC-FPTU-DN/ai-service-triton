@@ -1,0 +1,13 @@
+# Python files
+env/
+__pycache__/
+
+# Local data
+archive/
+resources/
+
+# AI Models
+models/*/
+
+# Git keep
+!.gitkeep

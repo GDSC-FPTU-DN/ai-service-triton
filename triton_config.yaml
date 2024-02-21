@@ -1,0 +1,13 @@
+model_repository: ./models
+models:
+  rembg:
+    engine: onnx
+    max_batch_size: 4
+    dynamic_batching: true
+    max_queue_delay_microseconds: 100
+    instance_group:
+      - kind: gpu
+        count: 2
+    versions:
+      - version: 1
+        path: ./resources/u2net.onnx
