@@ -9,8 +9,11 @@ and its configuration files.
 '''
 
 import argparse
+import shutil
+from _abstract import TritonConfig
 from _file_config import FileConfig
 from _build_pbtxt import BuildProtoBufTxt
+from _utils import get_absolute_path
 from _constants import ERROR_PREFIX, WARNING_PREFIX
 
 
@@ -52,7 +55,11 @@ def main():
     parser.add_argument('-f', type=str,
                         help='Path to the model configuration file. If provided, other arguments will be ignored.')
 
-    # Parse arguments ---------------------------------------------------------
+    # Rebuild model repository. Eg: False (default: False)
+    parser.add_argument('--rebuild', type=bool, default=False,
+                        help='Rebuild model repository. If provided, model repository will be rebuilt.')
+
+    # Parse arguments --------------------------------------------------------
     args = parser.parse_args()
 
     # Load configuration file if provided ------------------------------------
@@ -85,7 +92,7 @@ def main():
             return
 
         # Initialize configuration
-        config = {
+        config: TritonConfig = {
             "model_repository": args.model_repository,
             "models": {}
         }
@@ -104,8 +111,15 @@ def main():
             ]
         }
 
+    # Rebuild model repository if provided ------------------------------------
+    if args.rebuild:
+        shutil.rmtree(get_absolute_path(config["model_repository"]))
+
     # Write to model repository
     BuildProtoBufTxt(config).build()
+    # try:
+    # except Exception as e:
+    #     print(ERROR_PREFIX + str(e))
 
 
 # Run main function if module is run directly

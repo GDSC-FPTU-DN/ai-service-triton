@@ -1,32 +1,16 @@
+'''
+Triton Server Build Support.
+----
+Author: Ming-doan
+Created: 2024-02-20
+----
+This module provides support for building Triton Server model repository
+and its configuration files.
+'''
+
 import os
-from typing import Union, Any
-
-
-class TritonEnum:
-    '''
-    Triton Enum Class.
-    Used to present special types in Triton Server config.pbtxt.
-    '''
-
-    def __init__(self, value: Union[str, list], mapping_values: dict = None):
-        self.__value = value
-        self.__mapping_values = mapping_values
-
-    def __get_value(self, value: Any) -> str:
-        '''
-        Get value from mapping values.
-        '''
-        if self.__mapping_values:
-            return self.__mapping_values.get(value, value)
-        return value
-
-    def __str__(self):
-        '''
-        Convert to string.
-        '''
-        if isinstance(self.__value, list):
-            return f"[{', '.join(self.__get_value(str(value)) for value in self.__value)}]"
-        return self.__value
+from _abstract import TritonEnum, PythonModuleConfig, FormatedTritonConfig, FormatedInputOutputTensors
+from _constants import TRITON_PRESEVED_KEYWORDS
 
 
 def get_absolute_path(path: str) -> str:
@@ -54,20 +38,31 @@ def get_absolute_path(path: str) -> str:
     return os.path.join(os.getcwd(), path)
 
 
-def dictionary_to_string(dictionary: dict, indent: int = 0, tab: int = 2) -> str:
+def dictionary_to_string(dictionary: FormatedTritonConfig, indent: int = 0, tab: int = 2) -> str:
     '''
     Convert dictionary to pretty string.
     '''
+    def __get_special_key(key: str) -> str:
+        if "input_map" in key:
+            return "input_map"
+        if "output_map" in key:
+            return "output_map"
+        if "input" in key:
+            return "input"
+        if "output" in key:
+            return "output"
+        return key
+
     string = ""
     for key, value in dictionary.items():
         if isinstance(value, str):
-            string += f"{' '*indent}{key}: \"{value}\"\n"
+            string += f"{' '*indent}{__get_special_key(key)}: \"{value}\"\n"
         if isinstance(value, int):
-            string += f"{' '*indent}{key}: {value}\n"
+            string += f"{' '*indent}{__get_special_key(key)}: {value}\n"
         if isinstance(value, TritonEnum):
-            string += f"{' '*indent}{key}: {value}\n"
+            string += f"{' '*indent}{__get_special_key(key)}: {value}\n"
         if isinstance(value, list):
-            string += f"{' '*indent}{key} [\n"
+            string += f"{' '*indent}{__get_special_key(key)} [\n"
             for i, item in enumerate(value):
                 if isinstance(item, str):
                     string += f"{' '*(indent+tab)}\"{item}\"\n"
@@ -81,7 +76,7 @@ def dictionary_to_string(dictionary: dict, indent: int = 0, tab: int = 2) -> str
                     string += f"{' '*(indent+tab)}}}{',' if i != len(value) - 1 else ''}\n"
             string += f"{' '*indent}]\n"
         if isinstance(value, dict):
-            string += f"{' '*indent}{key} {{\n"
+            string += f"{' '*indent}{__get_special_key(key)} {{\n"
             string += dictionary_to_string(value, indent+tab, tab)
             string += f"{' '*indent}}}\n"
     return string
@@ -93,6 +88,8 @@ def get_backend_string(engine: str) -> str:
     '''
     if engine == "onnx":
         return "onnxruntime"
+    if engine == "python":
+        return "python"
     return ""
 
 
@@ -131,4 +128,133 @@ def get_dtype_string(dtype: str) -> str:
         return TritonEnum("TYPE_INT16")
     if dtype == "bool":
         return TritonEnum("TYPE_BOOL")
+    if dtype == "string":
+        return TritonEnum("TYPE_STRING")
     raise ValueError(f"Unsupported data type: {dtype}")
+
+
+def get_python_filename(path: str) -> str:
+    '''
+    Get python filename from path.
+    '''
+    filename = os.path.basename(path).split(".")[0]
+    if filename in TRITON_PRESEVED_KEYWORDS:
+        raise ValueError(
+            f"Filename {filename} is a preserved keyword. Preserved keywords: {TRITON_PRESEVED_KEYWORDS}")
+    return filename
+
+
+def get_imports_from_modules_data(data: PythonModuleConfig) -> str:
+    '''
+    Get import from modules data.
+    '''
+    imports = []
+    imports.append(data["execute"])
+    if "initialize" in data:
+        imports.append(data["initialize"])
+    if "finalize" in data:
+        imports.append(data["finalize"])
+
+    # Check if function name not in preserved keywords
+    for import_name in imports:
+        if import_name in TRITON_PRESEVED_KEYWORDS:
+            raise ValueError(
+                f"Function name {import_name} is a preserved keyword. Preserved keywords: {TRITON_PRESEVED_KEYWORDS}")
+
+    return f"from .{get_python_filename(data['path'])} import {', '.join(imports)}"
+
+
+def get_python_initialize_function(func_name: str) -> str:
+    '''
+    Get python initialize function.
+    If func_name is None, return ...
+    '''
+    if func_name:
+        return f"self.params = {func_name}(args)"
+    return "self.params = None"
+
+
+def get_python_finalize_function(func_name: str) -> str:
+    '''
+    Get python finalize function.
+    If func_name is None, return ...
+    '''
+    if func_name:
+        return f"{func_name}(self.params)"
+    return "..."
+
+
+def get_tensor_inputs_name(tensor_config: FormatedInputOutputTensors) -> list[str]:
+    '''
+    Get tensor inputs name.
+    '''
+    tensor_inputs_name = []
+    for tensor in tensor_config["input"]:
+        tensor_inputs_name.append(tensor["name"])
+    return tensor_inputs_name
+
+
+def get_tensor_outputs_name(tensor_config: FormatedInputOutputTensors) -> list[str]:
+    '''
+    Get tensor outputs name.
+    '''
+    tensor_outputs_name = []
+    for tensor in tensor_config["output"]:
+        tensor_outputs_name.append(tensor["name"])
+    return tensor_outputs_name
+
+
+# Data is a dictionary. Contain entire model config of Triton pbtxt.
+def get_file_instruction_string(data: FormatedTritonConfig): return f'''# Welcome to the Triton Server Protobuf Text Format (PBtxt) file.
+# This is auto generated file by `trsp` module. Developed by Ming-doan.
+# Models: {data['name']}.
+# Engine: {data['backend'] if "backend" in data else data["platform"]}.
+# ------------------------------
+
+'''
+
+
+def get_triton_python_model_config_string(name: str, data: PythonModuleConfig, tensor_config: FormatedInputOutputTensors): return f'''# Model Configuration for Triton Server Python Model.
+# Auto generated by `trsp` module. Developed by Ming-doan.
+# Model: {name}.
+# Engine: python.
+# ------------------------------
+
+import triton_python_backend_utils as pb_utils
+{get_imports_from_modules_data(data)}
+
+class TritonPythonModel:
+    def initialize(self, args):
+        {get_python_initialize_function(data['initialize'] if 'initialize' in data else None)}
+
+    def execute(self, requests):
+        tensor_inputs_name = {str(get_tensor_inputs_name(tensor_config))}
+        tensor_outputs_name = {str(get_tensor_outputs_name(tensor_config))}
+
+        responses = []
+        for request in requests:
+            # Get input tensors
+            input_tensors = []
+            for name in tensor_inputs_name:
+                input_tensors.append(
+                    pb_utils.get_input_tensor_by_name(request, name).as_numpy()
+                )
+
+            # Transfer tensors to execute function
+            outputs = {data['execute']}(self.params, input_tensors)
+
+            # Create output tensors
+            output_tensors = []
+            for name, output in zip(tensor_outputs_name, outputs):
+                output_tensors.append(pb_utils.Tensor(name, output))
+
+            # Create response
+            response = pb_utils.InferenceResponse(output_tensors)
+
+            # Append response
+            responses.append(response)
+        return responses
+
+    def finalize(self):
+        {get_python_finalize_function(data['finalize'] if 'finalize' in data else None)}
+'''

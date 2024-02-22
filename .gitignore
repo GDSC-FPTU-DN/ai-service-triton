@@ -2,12 +2,11 @@
 env/
 __pycache__/
 
-# Local data
-archive/
-resources/
+# Build folders
+build/
 
-# AI Models
-models/*/
+# Ignore *.onnx file
+*.onnx
 
 # Git keep
 !.gitkeep
